@@ -1,0 +1,14 @@
+{
+    "name": "journey/daemon",
+    "description": "Simple event-loop daemon written in PHP",
+    "keywords": ["event-loop","daemon"],
+    "license": "MIT",
+    "require": {
+        "php": ">=5.4.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Journey\\Daemon\\": "src"
+        }
+    }
+}
