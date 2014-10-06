@@ -7,7 +7,7 @@ use Closure;
 class Daemon
 {
     
-    private $micropause = 1000;
+    private $pause = 100000;
 
     private $controller;
 
@@ -17,7 +17,9 @@ class Daemon
 
     private $cpuTarget = 20;
 
-    private $throttleSensitivity = 100;
+    private $cpuCount = 1;
+
+    private $throttleSensitivity = 1000;
 
 
     /**
@@ -26,9 +28,9 @@ class Daemon
      */
     public function __construct(DaemonControllerInterface $controller)
     {
+        $this->setCpuCores();
         $this->controller = $controller;
         $this->controller->setDaemon($this);
-
         $this->lastCpuCheck = time();
         $this->loop();
     }
@@ -58,7 +60,7 @@ class Daemon
 
             $c->process();
             
-            usleep($throttle());
+            time_nanosleep(0, $throttle());
         }
     }
 
@@ -73,23 +75,23 @@ class Daemon
         if ((time() - $this->lastCpuCheck) >= $this->cpuCheckFrequency) {
             $load = sys_getloadavg();
             
-            if ($load[0] >= $this->cpuTarget) {
-                $this->micropause += $this->throttleSensitivity;
+            if ($load[0]/$this->cpuCount >= $this->cpuTarget) {
+                $this->pause += $this->throttleSensitivity;
                 $this->controller->notify('Daemon throttling down');
             } else {
-                $this->micropause -= $this->throttleSensitivity;
+                $this->pause -= $this->throttleSensitivity;
                 $this->controller->notify('Daemon throttling up');
             }
 
             $this->lastCpuCheck = time();
         }
 
-        // Never allow micropause to dip below 1 microsecond
-        if ($this->micropause < 1) {
-            $this->micropause = 1;
+        // Never allow pause to dip below 1 microsecond
+        if ($this->pause < 1) {
+            $this->pause = 1;
         }
 
-        return $this->micropause;
+        return $this->pause;
     }
 
 
@@ -123,5 +125,37 @@ class Daemon
     public function setCpuCheckFrequency($seconds)
     {
         $this->cpuCheckFrequency = $seconds;
+    }
+
+
+    /**
+     * Attempts to read the number of cpu cores and set it internally
+     */
+    public function setCpuCores()
+    {
+        $numCpus = 1;
+        if (is_file('/proc/cpuinfo')) {
+            $cpuinfo = file_get_contents('/proc/cpuinfo');
+            preg_match_all('/^processor/m', $cpuinfo, $matches);
+            $numCpus = count($matches[0]);
+        } else if ('WIN' == strtoupper(substr(PHP_OS, 0, 3))) {
+            $process = @popen('wmic cpu get NumberOfCores', 'rb');
+            if (false !== $process) {
+                fgets($process);
+                $numCpus = intval(fgets($process));
+                pclose($process);
+            }
+        } else {
+            $process = @popen('sysctl -a', 'rb');
+            if (false !== $process) {
+                $output = stream_get_contents($process);
+                preg_match('/hw.ncpu: (\d+)/', $output, $matches);
+                if ($matches) {
+                    $numCpus = intval($matches[1][0]);
+                }
+                pclose($process);
+            }
+        }
+        $this->cpuCount = $numCpus;
     }
 }
